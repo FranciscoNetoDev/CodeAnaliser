@@ -6,7 +6,7 @@ namespace TID_CodeAnaliser.Core;
 
 public interface IAiSuggestionAgent
 {
-    Task<string?> SuggestAsync(RuleFinding finding, CancellationToken cancellationToken = default);
+    Task<string?> SuggestAsync(RuleFinding finding, string? codeContext, CancellationToken cancellationToken = default);
 }
 
 public sealed class OpenAiSuggestionAgent : IAiSuggestionAgent
@@ -22,22 +22,22 @@ public sealed class OpenAiSuggestionAgent : IAiSuggestionAgent
         _apiKey = Environment.GetEnvironmentVariable(options.AiApiKeyEnvVar) ?? string.Empty;
     }
 
-    public Task<string?> SuggestAsync(RuleFinding finding, CancellationToken cancellationToken = default)
+    public Task<string?> SuggestAsync(RuleFinding finding, string? codeContext, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
             return Task.FromResult<string?>(null);
         }
 
-        return ExecuteRequestAsync(finding, cancellationToken);
+        return ExecuteRequestAsync(finding, codeContext, cancellationToken);
     }
 
-    private async Task<string?> ExecuteRequestAsync(RuleFinding finding, CancellationToken cancellationToken)
+    private async Task<string?> ExecuteRequestAsync(RuleFinding finding, string? codeContext, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, _options.AiEndpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
 
-        var prompt = BuildPrompt(finding);
+        var prompt = BuildPrompt(finding, codeContext);
         var payload = new
         {
             model = _options.AiModel,
@@ -58,12 +58,14 @@ public sealed class OpenAiSuggestionAgent : IAiSuggestionAgent
         return ExtractOutputText(body);
     }
 
-    private static string BuildPrompt(RuleFinding finding)
+    private static string BuildPrompt(RuleFinding finding, string? codeContext)
     {
         var sb = new StringBuilder();
         sb.AppendLine("Você é um revisor de código C# especialista em arquitetura.");
         sb.AppendLine("Retorne uma sugestão prática e curta (máximo 8 linhas) para corrigir o problema.");
-        sb.AppendLine("Inclua 1 mini exemplo de código quando fizer sentido.");
+        sb.AppendLine("A resposta deve ser estritamente contextual ao símbolo e trecho analisado.");
+        sb.AppendLine("Não invente classes/métodos que não aparecem no trecho.");
+        sb.AppendLine("Sempre cite o símbolo analisado no começo da resposta.");
         sb.AppendLine();
         sb.AppendLine($"RuleId: {finding.RuleId}");
         sb.AppendLine($"Título: {finding.Title}");
@@ -73,6 +75,14 @@ public sealed class OpenAiSuggestionAgent : IAiSuggestionAgent
         sb.AppendLine($"Descrição: {finding.Description}");
         sb.AppendLine($"Recomendação base: {finding.Recommendation}");
         sb.AppendLine($"Evidência: {finding.Evidence}");
+        if (!string.IsNullOrWhiteSpace(codeContext))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Trecho real do código analisado (use este contexto para sugerir a correção):");
+            sb.AppendLine("```csharp");
+            sb.AppendLine(codeContext);
+            sb.AppendLine("```");
+        }
         return sb.ToString();
     }
 

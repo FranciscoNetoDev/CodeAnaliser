@@ -25,7 +25,7 @@ public sealed class AnalysisEngine
 
         if (options.EnableAiSuggestions && _aiSuggestionAgent is not null)
         {
-            findings = EnrichWithAiSuggestions(findings, options);
+            findings = EnrichWithAiSuggestions(findings, context, options);
         }
 
         var fileScores = findings
@@ -75,7 +75,7 @@ public sealed class AnalysisEngine
         };
     }
 
-    private List<RuleFinding> EnrichWithAiSuggestions(List<RuleFinding> findings, AnalysisOptions options)
+    private List<RuleFinding> EnrichWithAiSuggestions(List<RuleFinding> findings, ProjectContext context, AnalysisOptions options)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(3, options.AiTimeoutSeconds)));
         var maxSuggestions = Math.Max(1, options.AiMaxSuggestionsPerRun);
@@ -93,8 +93,9 @@ public sealed class AnalysisEngine
             string? aiSuggestion;
             try
             {
+                var codeContext = BuildCodeContextForFinding(context, finding);
                 aiSuggestion = _aiSuggestionAgent!
-                    .SuggestAsync(finding, cts.Token)
+                    .SuggestAsync(finding, codeContext, cts.Token)
                     .GetAwaiter()
                     .GetResult();
             }
@@ -107,6 +108,36 @@ public sealed class AnalysisEngine
         }
 
         return results;
+    }
+
+    private static string? BuildCodeContextForFinding(ProjectContext context, RuleFinding finding)
+    {
+        var sourceFile = context.Files.FirstOrDefault(f => f.RelativePath.Equals(finding.FilePath, StringComparison.OrdinalIgnoreCase));
+        if (sourceFile is null)
+        {
+            return null;
+        }
+
+        if (finding.StartLine is null || finding.EndLine is null)
+        {
+            return Helpers.TrimSnippet(sourceFile.Content, 1200);
+        }
+
+        var padding = 6;
+        var start = Math.Max(1, finding.StartLine.Value - padding);
+        var end = Math.Min(sourceFile.Lines.Length, finding.EndLine.Value + padding);
+        if (start > end)
+        {
+            return null;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        for (var i = start; i <= end; i++)
+        {
+            sb.Append(i.ToString("0000")).Append(": ").AppendLine(sourceFile.Lines[i - 1]);
+        }
+
+        return sb.ToString();
     }
 
     private static RuleFinding CloneWithAiSuggestion(RuleFinding finding, string? aiSuggestion)
