@@ -74,6 +74,14 @@ public static class ReportWriters
                 sb.AppendLine(finding.CodexPrompt);
                 sb.AppendLine("```");
             }
+            if (!string.IsNullOrWhiteSpace(finding.AiSuggestion))
+            {
+                sb.AppendLine("- Sugestão de IA:");
+                sb.AppendLine();
+                sb.AppendLine("```text");
+                sb.AppendLine(finding.AiSuggestion);
+                sb.AppendLine("```");
+            }
             sb.AppendLine();
         }
 
@@ -152,6 +160,10 @@ public static class ReportWriters
             if (!string.IsNullOrWhiteSpace(finding.CodexPrompt))
             {
                 sb.AppendLine($"    <pre>{EscapeHtml(finding.CodexPrompt)}</pre>");
+            }
+            if (!string.IsNullOrWhiteSpace(finding.AiSuggestion))
+            {
+                sb.AppendLine($"    <p><strong>Sugestão de IA:</strong></p><pre>{EscapeHtml(finding.AiSuggestion)}</pre>");
             }
             sb.AppendLine("  </div>");
         }

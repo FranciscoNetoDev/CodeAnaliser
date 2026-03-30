@@ -10,6 +10,8 @@ Versão 2 do motor de auditoria arquitetural para projetos C#.
 - findings com severidade, evidência e recomendação
 - sugestão objetiva de refatoração por problema encontrado
 - **prompt automático para Codex** por finding
+- integração opcional com agente de IA (OpenAI) para retornar sugestões adicionais por finding
+  - as sugestões usam o trecho real de código (linhas do finding + contexto) para evitar recomendações fora de contexto
 - relatórios em `json`, `md` e `html`
 - configuração externa via `tidcodeanaliser.json`
 
@@ -69,5 +71,26 @@ dotnet run --project ./src/TID_CodeAnaliser.Cli -- --root "D:/Projetos/PortalAte
 ## Observações
 
 - esta implementação usa Roslyn para análise sintática e semântica leve do código-fonte
+- para ativar sugestões por IA, configure no `tidcodeanaliser.json`:
+
+```json
+{
+  "enableAiSuggestions": true,
+  "aiProvider": "OpenAI",
+  "aiModel": "gpt-4.1-mini",
+  "aiEndpoint": "https://api.openai.com/v1/responses",
+  "aiApiKeyEnvVar": "OPENAI_API_KEY",
+  "aiSuggestionMaxTokens": 220,
+  "aiTimeoutSeconds": 20,
+  "aiMaxSuggestionsPerRun": 30
+}
+```
+
+- e exporte a chave da API antes de rodar:
+
+```bash
+export OPENAI_API_KEY="sua-chave"
+```
+
 - o ambiente onde o arquivo foi gerado não possui SDK .NET instalado, então os arquivos foram preparados mas não compilados aqui
 - para funcionamento completo, use .NET 8 SDK na sua máquina

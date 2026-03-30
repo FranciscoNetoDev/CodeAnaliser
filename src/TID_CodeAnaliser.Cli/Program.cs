@@ -12,6 +12,16 @@ var configPath = arguments.TryGetValue("config", out var config)
 Directory.CreateDirectory(outputDirectory);
 
 var options = AnalysisEngine.LoadOptions(configPath);
+IAiSuggestionAgent? aiSuggestionAgent = null;
+if (options.EnableAiSuggestions && options.AiProvider.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
+{
+    var httpClient = new HttpClient
+    {
+        Timeout = TimeSpan.FromSeconds(Math.Max(3, options.AiTimeoutSeconds))
+    };
+    aiSuggestionAgent = new OpenAiSuggestionAgent(httpClient, options);
+}
+
 var engine = new AnalysisEngine(new IRule[]
 {
     new LargeClassRule(),
@@ -24,7 +34,7 @@ var engine = new AnalysisEngine(new IRule[]
     new DbCallInsideLoopRule(),
     new SyncOverAsyncRule(),
     new GenericExceptionRule()
-});
+}, aiSuggestionAgent);
 
 Console.WriteLine("[TID_CodeAnaliser_CS] Iniciando análise...");
 Console.WriteLine($"[TID_CodeAnaliser_CS] Root   : {rootPath}");

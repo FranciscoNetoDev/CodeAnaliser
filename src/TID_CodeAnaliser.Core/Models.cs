@@ -14,6 +14,14 @@ public sealed class AnalysisOptions
     public string[] ApplicationPathHints { get; set; } = ["Application", "Handlers", "Services", "UseCases"];
     public string[] InfrastructurePathHints { get; set; } = ["Infrastructure", "Infra", "Repository", "Repositories", "Persistence", "Data"];
     public string[] DirectInfrastructureTypeTokens { get; set; } = ["SqlConnection", "FbConnection", "DbContext", "IDbConnection", "IDbTransaction", "Dapper", "DatabaseFacade"];
+    public bool EnableAiSuggestions { get; set; } = false;
+    public string AiProvider { get; set; } = "OpenAI";
+    public string AiModel { get; set; } = "gpt-4.1-mini";
+    public string AiEndpoint { get; set; } = "https://api.openai.com/v1/responses";
+    public string AiApiKeyEnvVar { get; set; } = "OPENAI_API_KEY";
+    public int AiSuggestionMaxTokens { get; set; } = 220;
+    public int AiTimeoutSeconds { get; set; } = 20;
+    public int AiMaxSuggestionsPerRun { get; set; } = 30;
 }
 
 public sealed class ProjectAnalysisReport
@@ -75,6 +83,7 @@ public sealed class RuleFinding
     public required string Recommendation { get; init; }
     public string? Evidence { get; init; }
     public string? CodexPrompt { get; init; }
+    public string? AiSuggestion { get; init; }
 }
 
 public sealed class SourceFile
