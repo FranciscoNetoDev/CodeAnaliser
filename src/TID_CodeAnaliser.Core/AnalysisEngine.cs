@@ -5,10 +5,12 @@ namespace TID_CodeAnaliser.Core;
 public sealed class AnalysisEngine
 {
     private readonly IReadOnlyList<IRule> _rules;
+    private readonly IAiSuggestionAgent? _aiSuggestionAgent;
 
-    public AnalysisEngine(IEnumerable<IRule> rules)
+    public AnalysisEngine(IEnumerable<IRule> rules, IAiSuggestionAgent? aiSuggestionAgent = null)
     {
         _rules = rules.ToList();
+        _aiSuggestionAgent = aiSuggestionAgent;
     }
 
     public ProjectAnalysisReport Analyze(string rootPath, AnalysisOptions options)
@@ -20,6 +22,11 @@ public sealed class AnalysisEngine
             .ThenBy(x => x.FilePath)
             .ThenBy(x => x.StartLine)
             .ToList();
+
+        if (options.EnableAiSuggestions && _aiSuggestionAgent is not null)
+        {
+            findings = EnrichWithAiSuggestions(findings, options);
+        }
 
         var fileScores = findings
             .GroupBy(x => x.FilePath)
@@ -67,6 +74,58 @@ public sealed class AnalysisEngine
             Findings = findings
         };
     }
+
+    private List<RuleFinding> EnrichWithAiSuggestions(List<RuleFinding> findings, AnalysisOptions options)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(3, options.AiTimeoutSeconds)));
+        var maxSuggestions = Math.Max(1, options.AiMaxSuggestionsPerRun);
+        var results = new List<RuleFinding>(findings.Count);
+
+        for (var i = 0; i < findings.Count; i++)
+        {
+            var finding = findings[i];
+            if (i >= maxSuggestions)
+            {
+                results.Add(finding);
+                continue;
+            }
+
+            string? aiSuggestion;
+            try
+            {
+                aiSuggestion = _aiSuggestionAgent!
+                    .SuggestAsync(finding, cts.Token)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch
+            {
+                aiSuggestion = null;
+            }
+
+            results.Add(CloneWithAiSuggestion(finding, aiSuggestion));
+        }
+
+        return results;
+    }
+
+    private static RuleFinding CloneWithAiSuggestion(RuleFinding finding, string? aiSuggestion)
+        => new()
+        {
+            RuleId = finding.RuleId,
+            Title = finding.Title,
+            Category = finding.Category,
+            FilePath = finding.FilePath,
+            SymbolName = finding.SymbolName,
+            StartLine = finding.StartLine,
+            EndLine = finding.EndLine,
+            Severity = finding.Severity,
+            Description = finding.Description,
+            Recommendation = finding.Recommendation,
+            Evidence = finding.Evidence,
+            CodexPrompt = finding.CodexPrompt,
+            AiSuggestion = aiSuggestion
+        };
 
     public static AnalysisOptions LoadOptions(string? path)
     {
