@@ -155,34 +155,47 @@ public sealed class CqrsMixingRule : IRule
     public IReadOnlyList<RuleFinding> Evaluate(ProjectContext context, AnalysisOptions options)
     {
         var findings = new List<RuleFinding>();
-        var readTokens = new[] { "Get", "Find", "List", "Select", "Query", "Obter", "Buscar" };
-        var writeTokens = new[] { "Save", "Insert", "Update", "Delete", "Create", "Add", "Commit" };
+        var readTokens = new[]
+        {
+            "Get", "Find", "List", "Select", "Query", "Read", "Load", "Fetch", "Search",
+            "Obter", "Buscar", "Consultar"
+        };
+        var writeTokens = new[]
+        {
+            "Save", "Insert", "Update", "Delete", "Create", "Add", "Commit", "Upsert",
+            "Remove", "Write", "Persist", "Merge", "Set", "Patch", "Replace"
+        };
 
         foreach (var tree in context.SyntaxTrees)
         {
             foreach (var method in tree.Root.DescendantNodes().OfType<MethodDeclarationSyntax>())
             {
                 var methodName = method.Identifier.Text;
-                var body = (method.Body?.ToString() ?? method.ExpressionBody?.ToString() ?? string.Empty);
+                var body = method.Body?.ToString() ?? method.ExpressionBody?.ToString() ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(body))
+                {
                     continue;
+                }
 
-                var nameHasRead = readTokens.Any(t => methodName.Contains(t, StringComparison.OrdinalIgnoreCase));
-                var nameHasWrite = writeTokens.Any(t => methodName.Contains(t, StringComparison.OrdinalIgnoreCase));
+                var nameHasRead = HasAnyToken(methodName, readTokens);
+                var nameHasWrite = HasAnyToken(methodName, writeTokens);
+                var isQueryByContract = LooksLikeQueryByContract(method);
+                var isCommandByContract = LooksLikeCommandByContract(method);
+                var (hasReadCall, hasWriteCall, evidenceTokens) = DetectReadWriteCalls(method, readTokens, writeTokens);
 
-                var invocations = method.DescendantNodes().OfType<InvocationExpressionSyntax>();
-                var hasReadCall = invocations.Any(inv =>
-                    inv.Expression is MemberAccessExpressionSyntax ma &&
-                    readTokens.Any(t => ma.Name.Identifier.Text.Contains(t, StringComparison.OrdinalIgnoreCase))
-                );
-                var hasWriteCall = invocations.Any(inv =>
-                    inv.Expression is MemberAccessExpressionSyntax ma &&
-                    writeTokens.Any(t => ma.Name.Identifier.Text.Contains(t, StringComparison.OrdinalIgnoreCase))
-                );
+                var isMixedByName = nameHasRead && nameHasWrite;
+                var isMixedByCalls = hasReadCall && hasWriteCall;
+                var queryWithWrite = (nameHasRead || isQueryByContract) && hasWriteCall;
+                var commandWithRead = (nameHasWrite || isCommandByContract) && hasReadCall;
 
-                if ((nameHasRead && nameHasWrite) || (hasReadCall && hasWriteCall))
+                if (isMixedByName || isMixedByCalls || queryWithWrite || commandWithRead)
                 {
                     var span = Helpers.GetLineSpan(method);
+                    var severity = (isMixedByCalls || queryWithWrite) ? FindingSeverity.High : FindingSeverity.Medium;
+                    var evidence = evidenceTokens.Count > 0
+                        ? $"Tokens detectados: {string.Join(", ", evidenceTokens.OrderBy(x => x))}"
+                        : "Foram detectados indícios de leitura e escrita no mesmo método.";
+
                     findings.Add(new RuleFindingDraft
                     {
                         RuleId = RuleId,
@@ -192,16 +205,111 @@ public sealed class CqrsMixingRule : IRule
                         SymbolName = method.Identifier.Text,
                         StartLine = span.startLine,
                         EndLine = span.endLine,
-                        Severity = FindingSeverity.High,
-                        Description = $"O método '{method.Identifier.Text}' mistura operações de leitura e escrita, o que fere o princípio CQRS.",
-                        Recommendation = "Separe em Command/CommandHandler e Query/QueryHandler. Deixe a orquestração explícita e com responsabilidade única.",
-                        Evidence = "Foram detectadas chamadas de leitura e escrita no mesmo método."
+                        Severity = severity,
+                        Description = $"O método '{method.Identifier.Text}' mistura operações de leitura e escrita, o que fere o princípio CQRS e dificulta testes e manutenção.",
+                        Recommendation = """
+Separe em Command/CommandHandler e Query/QueryHandler. Deixe a orquestração explícita e com responsabilidade única.
+Exemplo de refatoração:
+// Antes: método misto (consulta + atualização)
+// Depois: separar em dois fluxos
+public sealed record GetOrderQuery(Guid Id);
+public sealed record MarkOrderAsPaidCommand(Guid Id);
+
+public sealed class GetOrderQueryHandler
+{
+    public Task<OrderDto?> Handle(GetOrderQuery query, CancellationToken ct)
+        => _readRepository.GetByIdAsync(query.Id, ct);
+}
+
+public sealed class MarkOrderAsPaidCommandHandler
+{
+    public async Task Handle(MarkOrderAsPaidCommand command, CancellationToken ct)
+    {
+        var order = await _writeRepository.GetAggregateAsync(command.Id, ct);
+        order.MarkAsPaid();
+        await _unitOfWork.SaveChangesAsync(ct);
+    }
+}
+""",
+                        Evidence = evidence
                     }.ToFinding());
                 }
             }
         }
 
         return findings;
+    }
+
+    private static bool HasAnyToken(string text, IEnumerable<string> tokens)
+        => tokens.Any(t => text.Contains(t, StringComparison.OrdinalIgnoreCase));
+
+    private static bool LooksLikeQueryByContract(MethodDeclarationSyntax method)
+    {
+        var returnType = method.ReturnType.ToString();
+        var hasHttpGet = method.AttributeLists
+            .SelectMany(x => x.Attributes)
+            .Any(a => a.Name.ToString().Contains("HttpGet", StringComparison.OrdinalIgnoreCase));
+
+        return hasHttpGet || (!returnType.Equals("void", StringComparison.OrdinalIgnoreCase) &&
+                              !returnType.Equals("Task", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool LooksLikeCommandByContract(MethodDeclarationSyntax method)
+    {
+        var returnType = method.ReturnType.ToString();
+        var hasHttpWriteVerb = method.AttributeLists
+            .SelectMany(x => x.Attributes)
+            .Any(a =>
+            {
+                var name = a.Name.ToString();
+                return name.Contains("HttpPost", StringComparison.OrdinalIgnoreCase) ||
+                       name.Contains("HttpPut", StringComparison.OrdinalIgnoreCase) ||
+                       name.Contains("HttpPatch", StringComparison.OrdinalIgnoreCase) ||
+                       name.Contains("HttpDelete", StringComparison.OrdinalIgnoreCase);
+            });
+
+        return hasHttpWriteVerb || returnType.Equals("void", StringComparison.OrdinalIgnoreCase) ||
+               returnType.Equals("Task", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static (bool hasRead, bool hasWrite, HashSet<string> evidenceTokens) DetectReadWriteCalls(
+        MethodDeclarationSyntax method,
+        IReadOnlyList<string> readTokens,
+        IReadOnlyList<string> writeTokens)
+    {
+        var evidenceTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hasRead = false;
+        var hasWrite = false;
+
+        foreach (var invocation in method.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        {
+            var calledName = invocation.Expression switch
+            {
+                MemberAccessExpressionSyntax ma => ma.Name.Identifier.Text,
+                IdentifierNameSyntax id => id.Identifier.Text,
+                GenericNameSyntax gn => gn.Identifier.Text,
+                _ => invocation.Expression.ToString()
+            };
+
+            if (!hasRead && HasAnyToken(calledName, readTokens))
+            {
+                hasRead = true;
+                evidenceTokens.Add($"read:{calledName}");
+            }
+
+            if (!hasWrite && HasAnyToken(calledName, writeTokens))
+            {
+                hasWrite = true;
+                evidenceTokens.Add($"write:{calledName}");
+            }
+
+            if (hasRead && hasWrite)
+            {
+                break;
+            }
+        }
+
+        return (hasRead, hasWrite, evidenceTokens);
     }
 }
 
