@@ -11,7 +11,7 @@ Versão 2 do motor de auditoria arquitetural para projetos C#.
 - sugestão objetiva de refatoração por problema encontrado
 - **prompt automático para Codex** por finding
 - integração opcional com agente de IA (OpenAI) para retornar sugestões adicionais por finding
-  - as sugestões usam o trecho real de código (linhas do finding + contexto) para evitar recomendações fora de contexto
+- as sugestões usam o trecho real de código (linhas do finding + contexto) para evitar recomendações fora de contexto
 - relatórios em `json`, `md` e `html`
 - configuração externa via `tidcodeanaliser.json`
 
