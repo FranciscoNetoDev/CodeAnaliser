@@ -1,0 +1,42 @@
+{
+  "maxClassNonEmptyLines": 300,
+  "maxMethodNonEmptyLines": 40,
+  "maxConstructorDependencies": 5,
+  "duplicateMethodMinLines": 8,
+  "maxControllerComplexityHints": 3,
+  "excludedDirectories": [
+    "bin",
+    "obj",
+    ".git",
+    ".vs",
+    "packages",
+    "node_modules",
+    "Migrations"
+  ],
+  "includedExtensions": [
+    ".cs"
+  ],
+  "applicationPathHints": [
+    "Application",
+    "Handlers",
+    "Services",
+    "UseCases"
+  ],
+  "infrastructurePathHints": [
+    "Infrastructure",
+    "Infra",
+    "Repository",
+    "Repositories",
+    "Persistence",
+    "Data"
+  ],
+  "directInfrastructureTypeTokens": [
+    "SqlConnection",
+    "FbConnection",
+    "DbContext",
+    "IDbConnection",
+    "IDbTransaction",
+    "Dapper",
+    "DatabaseFacade"
+  ]
+}

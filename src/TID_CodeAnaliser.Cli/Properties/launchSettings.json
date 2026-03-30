@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TID_CodeAnaliser.Cli": {
+      "commandName": "Project",
+      "commandLineArgs": "--root \"C:\\Users\\Chico Dev\\Desktop\\tid\\conciliacaoofx_cs\\ConcializacaoOFX_CS\""
+    }
+  }
+}
